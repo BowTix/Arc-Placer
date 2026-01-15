@@ -8,9 +8,10 @@ import random
 import ctypes
 import os
 import sys
+import math
 
-# On importe la logique depuis l'autre fichier
-from logic import BotVision
+# On importe la logique et la liste des couleurs
+from logic import BotVision, GAME_COLORS
 
 
 def resource_path(relative_path):
@@ -21,6 +22,54 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+# --- CLASSE TOOLTIP ---
+class ToolTip:
+    """
+    Crée une petite info-bulle au survol de la souris.
+    """
+
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def show_tip(self, event=None):
+        if self.tip_window or not self.text:
+            return
+
+        # Position de la souris/widget
+        x, y, cx, cy = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 25
+        y = y + self.widget.winfo_rooty() + 25
+
+        # Création de la fenêtre flottante
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)  # Pas de bordure Windows classique
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)  # Toujours au-dessus
+
+        # Design de l'étiquette (Thème sombre adapté)
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify=tk.LEFT,
+            background="#313244",  # Fond gris/bleu du thème
+            foreground="#cdd6f4",  # Texte clair
+            relief="solid",
+            borderwidth=1,
+            font=("Segoe UI", 8)
+        )
+        label.pack(ipadx=1)
+
+    def hide_tip(self, event=None):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
+# --- APPLICATION PRINCIPALE ---
 class WplaceBotApp:
     def __init__(self, root):
         self.root = root
@@ -31,7 +80,7 @@ class WplaceBotApp:
         self.setup_dark_mode_title_bar()
 
         # --- FENÊTRE ---
-        self.root.geometry("260x450")
+        self.root.geometry("260x480")  # Un peu plus grand pour l'ergonomie
         self.root.resizable(True, True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.95)
@@ -59,7 +108,13 @@ class WplaceBotApp:
         self.running = False
         self.full_block_size = tk.IntVar(value=0)
         self.play_area = None
-        self.target_color = tk.StringVar(value="51, 57, 65")
+
+        # Init avec la dernière couleur de la liste
+        default_col = GAME_COLORS[-1]
+        self.target_color_rgb = default_col['rgb']
+        self.target_color_name = tk.StringVar(value=default_col['name'])
+        self.target_color_hex = default_col['hex']
+
         self.tolerance = 15
         self.user_delay = tk.StringVar(value="0.2")
         self.status_var = tk.StringVar(value="En attente...")
@@ -71,6 +126,16 @@ class WplaceBotApp:
             keyboard.add_hotkey('s', self.toggle_bot_safe)
         except Exception as e:
             print(f"Erreur Hotkey: {e}")
+
+    # --- NOUVELLE FONCTION : CALCUL DU CONTRASTE ---
+    def get_contrast_color(self, rgb):
+        """
+        Calcule si le texte doit être noir ou blanc en fonction de la couleur de fond.
+        Formule de luminance standard : Y = 0.299*R + 0.587*G + 0.114*B
+        """
+        luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
+        # Si luminance < 128 (sombre) -> Texte Blanc, sinon Texte Noir
+        return "white" if luminance < 128 else "black"
 
     # --- SETUP SYSTÈME ---
     def setup_dpi_awareness(self):
@@ -100,10 +165,14 @@ class WplaceBotApp:
                         font=("Segoe UI", 9, "bold"))
         style.configure("TEntry", fieldbackground=self.btn_color, foreground="white", insertcolor="white",
                         bordercolor=self.bg_color, lightcolor=self.btn_color, borderwidth=0, relief="flat")
+
+        # Style bouton standard
         style.configure("TButton", background=self.btn_color, foreground=self.fg_color, borderwidth=0,
                         font=("Segoe UI", 9), padding=6, relief="flat")
         style.map("TButton", background=[("active", self.btn_active), ("pressed", self.accent_color)],
                   foreground=[("pressed", self.bg_color)])
+
+        # Style bouton Start
         style.configure("Start.TButton", background=self.accent_color, foreground=self.bg_color,
                         font=("Segoe UI", 11, "bold"), padding=10)
         style.map("Start.TButton", background=[("active", self.highlight), ("disabled", self.btn_color)],
@@ -115,25 +184,40 @@ class WplaceBotApp:
         header.pack(fill="x", pady=(15, 5))
         tk.Label(header, text="ARC PLACER", font=("Segoe UI", 16, "bold"), bg=self.bg_color,
                  fg=self.accent_color).pack()
-        tk.Label(header, text="v2.3 • Anti-Spam Fix", font=("Segoe UI", 8), bg=self.bg_color, fg="#6c7086").pack()
+        tk.Label(header, text="v2.5 • Tooltips", font=("Segoe UI", 8), bg=self.bg_color, fg="#6c7086").pack()
 
         # Paramètres
-        f_params = ttk.LabelFrame(self.root, text="Paramètres", padding=10)
+        f_params = ttk.LabelFrame(self.root, text="Cible & Délai", padding=10)
         f_params.pack(fill="x", padx=15, pady=5)
 
-        tk.Label(f_params, text="Couleur (RGB) :", bg=self.bg_color, fg="#6c7086", font=("Segoe UI", 8)).pack(
+        # 1. Selecteur de Couleur
+        tk.Label(f_params, text="Couleur cible :", bg=self.bg_color, fg="#6c7086", font=("Segoe UI", 8)).pack(
             anchor="w")
-        ttk.Entry(f_params, textvariable=self.target_color, justify="center").pack(fill="x", pady=(0, 8))
 
+        # Calcul de la couleur de texte initiale
+        initial_fg = self.get_contrast_color(self.target_color_rgb)
+
+        # Un bouton qui affiche la couleur actuelle
+        self.btn_color_pick = tk.Button(
+            f_params,
+            textvariable=self.target_color_name,
+            bg=self.target_color_hex,
+            fg=initial_fg,
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            command=self.open_color_palette
+        )
+        self.btn_color_pick.pack(fill="x", pady=(2, 10), ipady=5)
+
+        # 2. Délai
         tk.Label(f_params, text="Délai Clic (sec) :", bg=self.bg_color, fg="#6c7086", font=("Segoe UI", 8)).pack(
             anchor="w")
         ttk.Entry(f_params, textvariable=self.user_delay, justify="center").pack(fill="x")
 
         # Setup Buttons
-        f_conf = ttk.LabelFrame(self.root, text="Setup", padding=10)
+        f_conf = ttk.LabelFrame(self.root, text="Configuration", padding=10)
         f_conf.pack(fill="x", padx=15, pady=5)
 
-        # MODIFICATION ICI : On assigne à self.btn_... pour pouvoir les désactiver
         self.btn_calib = ttk.Button(f_conf, text="1. Calibrer (Carré Plein)", command=self.start_auto_calib)
         self.btn_calib.pack(fill="x", pady=2)
 
@@ -160,17 +244,77 @@ class WplaceBotApp:
         self.status_var.set(f"> {message}")
         self.root.update_idletasks()
 
-    # --- UTILITAIRE UI : Activer/Désactiver boutons Setup ---
     def toggle_setup_buttons(self, state):
         self.btn_calib.config(state=state)
         self.btn_zone.config(state=state)
 
     def cancel_overlay(self, event=None):
-        # Appelé quand on fait Echap
         if hasattr(self, 'top') and self.top:
             self.top.destroy()
         self.toggle_setup_buttons("normal")
         self.log("Annulé.")
+
+    # --- LOGIQUE PALETTE COULEUR ---
+    def open_color_palette(self):
+        self.toggle_setup_buttons("disabled")
+
+        # Fenêtre Palette
+        self.top = tk.Toplevel(self.root)
+        self.top.title("Choisir une couleur")
+        self.top.configure(bg=self.bg_color)
+        self.top.attributes("-topmost", True)
+        self.top.resizable(False, False)
+
+        # Grille de couleurs
+        grid_frame = tk.Frame(self.top, bg=self.bg_color)
+        grid_frame.pack(padx=10, pady=10)
+        cols = 16
+
+        for i, color in enumerate(GAME_COLORS):
+            # Création du bouton couleur
+            btn = tk.Button(
+                grid_frame,
+                bg=color['hex'],
+                width=4, height=2,
+                relief="flat",
+                cursor="hand2",
+                command=lambda c=color: self.select_color_from_palette(c)
+            )
+
+            # Positionnement dynamique
+            row = i // cols
+            col = i % cols
+            btn.grid(row=row, column=col, padx=2, pady=2)
+
+            # --- AJOUT DU TOOLTIP ---
+            ToolTip(btn, color['name'])
+
+        self.top.bind("<Escape>", self.cancel_overlay)
+
+        # Centrage de la fenêtre
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2)
+
+    def select_color_from_palette(self, color_data):
+        # 1. Mise à jour des données
+        self.target_color_rgb = color_data['rgb']
+        self.target_color_name.set(color_data['name'])
+        self.target_color_hex = color_data['hex']
+
+        # 2. Calcul de la couleur de texte (Contraste)
+        new_fg = self.get_contrast_color(self.target_color_rgb)
+
+        # 3. Mise à jour visuelle du bouton principal
+        self.btn_color_pick.configure(
+            bg=self.target_color_hex,
+            fg=new_fg  # Application du contraste
+        )
+
+        # 4. Fermeture
+        self.top.destroy()
+        self.toggle_setup_buttons("normal")
+        self.log(f"Cible : {color_data['name']}")
 
     # --- GESTION DU BOT ---
     def toggle_bot_safe(self):
@@ -188,7 +332,8 @@ class WplaceBotApp:
             self.log("Arrêté.")
 
     def bot_loop(self):
-        target_rgb = BotVision.parse_rgb(self.target_color.get())
+        target_rgb = self.target_color_rgb
+
         ref_size = self.full_block_size.get()
         tol = self.tolerance
         threshold = ref_size * 0.7
@@ -258,7 +403,7 @@ class WplaceBotApp:
 
     # --- CALIBRATION ---
     def start_zone_select(self):
-        self.toggle_setup_buttons("disabled")  # On bloque les boutons
+        self.toggle_setup_buttons("disabled")
         self.log("Encadre la zone de jeu...")
 
         self.top = tk.Toplevel(self.root)
@@ -285,7 +430,6 @@ class WplaceBotApp:
                          lambda e: self.canvas.coords(self.rect_id, self.start_x, self.start_y, e.x, e.y))
         self.canvas.bind("<ButtonRelease-1>", self.on_zone_end)
 
-        # On lie Echap à la fonction qui nettoie tout
         self.top.bind("<Escape>", self.cancel_overlay)
 
     def on_zone_end(self, event):
@@ -294,12 +438,12 @@ class WplaceBotApp:
         self.top.destroy()
         w, h = self.play_area[2] - self.play_area[0], self.play_area[3] - self.play_area[1]
 
-        self.toggle_setup_buttons("normal")  # On débloque
+        self.toggle_setup_buttons("normal")
         self.log("Zone définie !")
         self.update_info_label()
 
     def start_auto_calib(self):
-        self.toggle_setup_buttons("disabled")  # On bloque
+        self.toggle_setup_buttons("disabled")
         self.log("Overlay actif. Clique sur un PLEIN.")
 
         self.top = tk.Toplevel(self.root)
@@ -328,14 +472,12 @@ class WplaceBotApp:
         size = max(width, height)
         if size < 5:
             self.log("Erreur: Trop petit.")
-            self.root.after(1000,
-                            lambda: (self.top.destroy(), self.toggle_setup_buttons("normal")))  # On débloque aussi ici
+            self.root.after(1000, lambda: (self.top.destroy(), self.toggle_setup_buttons("normal")))
             return
 
         time.sleep(0.5);
         self.top.destroy()
-
-        self.toggle_setup_buttons("normal")  # On débloque succès
+        self.toggle_setup_buttons("normal")
         self.full_block_size.set(size)
         self.update_info_label()
         self.btn_start.config(state="normal")
