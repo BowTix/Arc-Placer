@@ -1,7 +1,7 @@
-# logic.py
+import json
+import os
 
-# --- LISTE SIMPLIFIÉE (TU REMPLIS JUSTE ÇA) ---
-# Format : ("Nom de la couleur", R, G, B)
+# --- DONNÉES DES COULEURS ---
 RAW_COLORS_DATA = [
     ("Black", 0, 0, 0),
     ("Dark Gray", 60, 60, 60),
@@ -69,7 +69,7 @@ RAW_COLORS_DATA = [
 ]
 
 
-# --- GÉNÉRATION AUTOMATIQUE (TOUCHE PAS À ÇA) ---
+# --- GÉNÉRATION AUTOMATIQUE ---
 def _rgb_to_hex(r, g, b):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
@@ -82,13 +82,40 @@ for name, r, g, b in RAW_COLORS_DATA:
         "hex": _rgb_to_hex(r, g, b)
     })
 
+# --- GESTION DE LA SAUVEGARDE (NOUVEAU) ---
+CONFIG_FILE = "config.json"
+DEFAULT_CONFIG = {
+    "color_name": "Noir",
+    "delay": "0.2"
+}
+
+
+def load_config():
+    """Charge la config depuis le JSON, ou renvoie le défaut si inexistant/corrompu"""
+    if not os.path.exists(CONFIG_FILE):
+        return DEFAULT_CONFIG
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return DEFAULT_CONFIG
+
+
+def save_config(color_name, delay):
+    """Sauvegarde la config actuelle dans le JSON"""
+    data = {
+        "color_name": color_name,
+        "delay": delay
+    }
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Erreur sauvegarde config : {e}")
+
 
 # --- LOGIQUE DU BOT ---
 class BotVision:
-    """
-    Contient toute la logique mathématique et l'analyse d'image.
-    """
-
     @staticmethod
     def parse_rgb(string_rgb):
         try:
