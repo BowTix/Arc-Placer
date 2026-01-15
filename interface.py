@@ -9,7 +9,9 @@ import ctypes
 import os
 import sys
 
+# On importe la logique depuis l'autre fichier
 from logic import BotVision
+
 
 def resource_path(relative_path):
     try:
@@ -17,6 +19,7 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
 
 class WplaceBotApp:
     def __init__(self, root):
@@ -28,7 +31,7 @@ class WplaceBotApp:
         self.setup_dark_mode_title_bar()
 
         # --- FENÊTRE ---
-        self.root.geometry("260x380")
+        self.root.geometry("260x450")
         self.root.resizable(True, True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.95)
@@ -52,12 +55,13 @@ class WplaceBotApp:
         self.root.configure(bg=self.bg_color)
         self.setup_styles()
 
-        # --- VARIABLES D'ÉTAT ---
+        # --- VARIABLES ---
         self.running = False
         self.full_block_size = tk.IntVar(value=0)
         self.play_area = None
         self.target_color = tk.StringVar(value="51, 57, 65")
         self.tolerance = 15
+        self.user_delay = tk.StringVar(value="0.2")
         self.status_var = tk.StringVar(value="En attente...")
 
         self.create_widgets()
@@ -111,18 +115,30 @@ class WplaceBotApp:
         header.pack(fill="x", pady=(15, 5))
         tk.Label(header, text="ARC PLACER", font=("Segoe UI", 16, "bold"), bg=self.bg_color,
                  fg=self.accent_color).pack()
-        tk.Label(header, text="v2.1 • GitHub Release", font=("Segoe UI", 8), bg=self.bg_color, fg="#6c7086").pack()
+        tk.Label(header, text="v2.3 • Anti-Spam Fix", font=("Segoe UI", 8), bg=self.bg_color, fg="#6c7086").pack()
 
-        # Inputs
-        f_col = ttk.LabelFrame(self.root, text="Target RGB", padding=10)
-        f_col.pack(fill="x", padx=15, pady=5)
-        ttk.Entry(f_col, textvariable=self.target_color, justify="center").pack(fill="x")
+        # Paramètres
+        f_params = ttk.LabelFrame(self.root, text="Paramètres", padding=10)
+        f_params.pack(fill="x", padx=15, pady=5)
 
-        # Config Buttons
+        tk.Label(f_params, text="Couleur (RGB) :", bg=self.bg_color, fg="#6c7086", font=("Segoe UI", 8)).pack(
+            anchor="w")
+        ttk.Entry(f_params, textvariable=self.target_color, justify="center").pack(fill="x", pady=(0, 8))
+
+        tk.Label(f_params, text="Délai Clic (sec) :", bg=self.bg_color, fg="#6c7086", font=("Segoe UI", 8)).pack(
+            anchor="w")
+        ttk.Entry(f_params, textvariable=self.user_delay, justify="center").pack(fill="x")
+
+        # Setup Buttons
         f_conf = ttk.LabelFrame(self.root, text="Setup", padding=10)
         f_conf.pack(fill="x", padx=15, pady=5)
-        ttk.Button(f_conf, text="1. Calibrer (Carré Plein)", command=self.start_auto_calib).pack(fill="x", pady=2)
-        ttk.Button(f_conf, text="2. Zone de Jeu", command=self.start_zone_select).pack(fill="x", pady=2)
+
+        # MODIFICATION ICI : On assigne à self.btn_... pour pouvoir les désactiver
+        self.btn_calib = ttk.Button(f_conf, text="1. Calibrer (Carré Plein)", command=self.start_auto_calib)
+        self.btn_calib.pack(fill="x", pady=2)
+
+        self.btn_zone = ttk.Button(f_conf, text="2. Zone de Jeu", command=self.start_zone_select)
+        self.btn_zone.pack(fill="x", pady=2)
 
         self.lbl_info = tk.Label(f_conf, text="Non calibré", bg=self.bg_color, fg="#6c7086",
                                  font=("Segoe UI", 8, "italic"))
@@ -143,6 +159,18 @@ class WplaceBotApp:
     def log(self, message):
         self.status_var.set(f"> {message}")
         self.root.update_idletasks()
+
+    # --- UTILITAIRE UI : Activer/Désactiver boutons Setup ---
+    def toggle_setup_buttons(self, state):
+        self.btn_calib.config(state=state)
+        self.btn_zone.config(state=state)
+
+    def cancel_overlay(self, event=None):
+        # Appelé quand on fait Echap
+        if hasattr(self, 'top') and self.top:
+            self.top.destroy()
+        self.toggle_setup_buttons("normal")
+        self.log("Annulé.")
 
     # --- GESTION DU BOT ---
     def toggle_bot_safe(self):
@@ -165,6 +193,12 @@ class WplaceBotApp:
         tol = self.tolerance
         threshold = ref_size * 0.7
         scan_step = 4
+
+        try:
+            base_delay = float(self.user_delay.get().replace(',', '.'))
+            if base_delay < 0.01: base_delay = 0.01
+        except:
+            base_delay = 0.1
 
         pic_test = pyautogui.screenshot()
         w_s, h_s = pic_test.size
@@ -197,9 +231,7 @@ class WplaceBotApp:
                         x += scan_step;
                         continue
 
-                    # APPEL AU FICHIER LOGIC.PY
                     blob_w, blob_h, bbox = BotVision.measure_blob_at(pixels, x, y, w_s, h_s, target_rgb, tol)
-
                     blob_size = max(blob_w, blob_h)
                     processed_zones.append(bbox)
 
@@ -208,7 +240,10 @@ class WplaceBotApp:
                         if sx <= cx <= ex and sy <= cy <= ey:
                             ox, oy = random.randint(-1, 1), random.randint(-1, 1)
                             pyautogui.click(cx + ox, cy + oy)
-                            time.sleep(random.uniform(0.15, 0.3))
+
+                            actual_delay = base_delay + random.uniform(0, base_delay * 0.3)
+                            time.sleep(actual_delay)
+
                             found = True
 
                     x = bbox[2] + 2
@@ -223,13 +258,17 @@ class WplaceBotApp:
 
     # --- CALIBRATION ---
     def start_zone_select(self):
+        self.toggle_setup_buttons("disabled")  # On bloque les boutons
         self.log("Encadre la zone de jeu...")
+
         self.top = tk.Toplevel(self.root)
         self.top.attributes('-fullscreen', True);
         self.top.attributes('-alpha', 0.3)
         self.top.config(cursor="crosshair")
+
         self.canvas = tk.Canvas(self.top, bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
+
         self.canvas.bind("<ButtonPress-1>",
                          lambda e: setattr(self, 'start_x', e.x) or setattr(self, 'start_y', e.y) or setattr(self,
                                                                                                              'rect_id',
@@ -245,26 +284,34 @@ class WplaceBotApp:
         self.canvas.bind("<B1-Motion>",
                          lambda e: self.canvas.coords(self.rect_id, self.start_x, self.start_y, e.x, e.y))
         self.canvas.bind("<ButtonRelease-1>", self.on_zone_end)
-        self.top.bind("<Escape>", lambda e: self.top.destroy())
+
+        # On lie Echap à la fonction qui nettoie tout
+        self.top.bind("<Escape>", self.cancel_overlay)
 
     def on_zone_end(self, event):
         self.play_area = (min(self.start_x, event.x), min(self.start_y, event.y), max(self.start_x, event.x),
                           max(self.start_y, event.y))
         self.top.destroy()
         w, h = self.play_area[2] - self.play_area[0], self.play_area[3] - self.play_area[1]
-        self.log("Zone définie !");
+
+        self.toggle_setup_buttons("normal")  # On débloque
+        self.log("Zone définie !")
         self.update_info_label()
 
     def start_auto_calib(self):
+        self.toggle_setup_buttons("disabled")  # On bloque
         self.log("Overlay actif. Clique sur un PLEIN.")
+
         self.top = tk.Toplevel(self.root)
         self.top.attributes('-fullscreen', True);
         self.top.attributes('-alpha', 0.3)
         self.top.config(cursor="crosshair")
+
         self.canvas = tk.Canvas(self.top, bg="white", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<ButtonRelease-1>", self.run_calib_scan)
-        self.top.bind("<Escape>", lambda e: self.top.destroy())
+
+        self.top.bind("<Escape>", self.cancel_overlay)
 
     def run_calib_scan(self, event):
         self.root.update();
@@ -272,7 +319,6 @@ class WplaceBotApp:
         pic = pyautogui.screenshot()
         target = pic.load()[event.x, event.y]
 
-        # APPEL AU FICHIER LOGIC.PY
         width, height, bbox = BotVision.measure_blob_at(pic.load(), event.x, event.y, pic.width, pic.height, target, 30)
 
         self.canvas.delete("all")
@@ -281,12 +327,15 @@ class WplaceBotApp:
 
         size = max(width, height)
         if size < 5:
-            self.log("Erreur: Trop petit.");
-            self.root.after(1000, self.top.destroy);
+            self.log("Erreur: Trop petit.")
+            self.root.after(1000,
+                            lambda: (self.top.destroy(), self.toggle_setup_buttons("normal")))  # On débloque aussi ici
             return
 
         time.sleep(0.5);
         self.top.destroy()
+
+        self.toggle_setup_buttons("normal")  # On débloque succès
         self.full_block_size.set(size)
         self.update_info_label()
         self.btn_start.config(state="normal")
