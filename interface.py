@@ -377,9 +377,9 @@ class WplaceBotApp:
                                 if current_target_rgb != last_placed_rgb:
                                     # La couleur a changé
                                     keyboard.press_and_release('i')
-                                    time.sleep(0.01)
+                                    time.sleep(0.05)
                                     pyautogui.click()  # Prendre
-                                    time.sleep(0.01)
+                                    time.sleep(0.05)
                                     pyautogui.click()  # Poser
 
                                     last_placed_rgb = current_target_rgb
