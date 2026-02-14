@@ -68,9 +68,11 @@ RAW_COLORS_DATA = [
     ("Light Slate", 179, 185, 209),
 ]
 
+
 # --- GÉNÉRATION AUTOMATIQUE ---
 def _rgb_to_hex(r, g, b):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
+
 
 GAME_COLORS = []
 for name, r, g, b in RAW_COLORS_DATA:
@@ -82,6 +84,7 @@ for name, r, g, b in RAW_COLORS_DATA:
 
 # --- GESTION DE LA SAUVEGARDE ---
 import os
+
 app_data_path = os.getenv('APPDATA')
 app_folder = os.path.join(app_data_path, "ArcPlacer")
 
@@ -92,8 +95,10 @@ CONFIG_FILE = os.path.join(app_folder, "config.json")
 
 DEFAULT_CONFIG = {
     "color_name": "Black",
-    "delay": "0.2"
+    "delay": "0.2",
+    "use_pipette": False
 }
+
 
 def load_config():
     """Charge la config depuis AppData"""
@@ -105,17 +110,20 @@ def load_config():
     except:
         return DEFAULT_CONFIG
 
-def save_config(color_name, delay):
+
+def save_config(color_name, delay, use_pipette):
     """Sauvegarde la config dans AppData"""
     data = {
         "color_name": color_name,
-        "delay": delay
+        "delay": delay,
+        "use_pipette": use_pipette
     }
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(data, f, indent=4)
     except Exception as e:
         print(f"Erreur sauvegarde config : {e}")
+
 
 # --- LOGIQUE DU BOT ---
 class BotVision:
@@ -131,6 +139,15 @@ class BotVision:
         return (abs(c1[0] - c2[0]) <= tol and
                 abs(c1[1] - c2[1]) <= tol and
                 abs(c1[2] - c2[2]) <= tol)
+
+    @staticmethod
+    def identify_color(pixel, tol):
+        """Cherche si le pixel correspond à UNE des couleurs du jeu."""
+        for color_info in GAME_COLORS:
+            target = color_info['rgb']
+            if BotVision.check_match(pixel, target, tol):
+                return target
+        return None
 
     @staticmethod
     def measure_blob_at(pixels, start_x, start_y, w, h, target_rgb, tol):

@@ -57,7 +57,7 @@ class WplaceBotApp:
         self.root = root
         self.root.title("ARC PLACER")
 
-        # --- GESTION FERMETURE (Sauvegarde) ---
+        # --- GESTION FERMETURE ---
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # --- CONFIG WINDOWS ---
@@ -65,7 +65,7 @@ class WplaceBotApp:
         self.setup_dark_mode_title_bar()
 
         # --- FENÊTRE ---
-        self.root.geometry("260x465")
+        self.root.geometry("260x500")
         self.root.resizable(True, True)
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.95)
@@ -96,20 +96,21 @@ class WplaceBotApp:
         self.tolerance = 15
         self.status_var = tk.StringVar(value="En attente...")
 
-        # 1. On charge le fichier JSON
+        # Variables sauvegardées
         config = load_config()
-        saved_color_name = config.get("color_name", "Noir")
+        saved_color_name = config.get("color_name", "Black")
         saved_delay = config.get("delay", "0.2")
+        saved_pipette = config.get("use_pipette", False)
 
-        # 2. On retrouve la couleur dans notre liste GAME_COLORS
-        # (On utilise next() pour trouver la couleur par son nom, sinon on prend la dernière par défaut)
-        target_col = next((c for c in GAME_COLORS if c["name"] == saved_color_name), GAME_COLORS[-1])
-
-        # 3. On applique les valeurs
+        # Couleur
+        target_col = next((c for c in GAME_COLORS if c["name"] == saved_color_name), GAME_COLORS[0])
         self.target_color_rgb = target_col['rgb']
         self.target_color_name = tk.StringVar(value=target_col['name'])
         self.target_color_hex = target_col['hex']
+
+        # Options
         self.user_delay = tk.StringVar(value=saved_delay)
+        self.use_pipette = tk.BooleanVar(value=saved_pipette)
 
         self.create_widgets()
 
@@ -119,20 +120,13 @@ class WplaceBotApp:
         except Exception as e:
             print(f"Erreur Hotkey: {e}")
 
-    # --- SAUVEGARDE A LA FERMETURE ---
     def on_close(self):
-        # On récupère les valeurs actuelles
         current_color = self.target_color_name.get()
         current_delay = self.user_delay.get()
-
-        # On sauvegarde dans le fichier via logic.py
-        save_config(current_color, current_delay)
-
-        # On ferme l'appli proprement
+        save_config(current_color, current_delay, self.use_pipette.get())
         self.root.destroy()
         sys.exit()
 
-    # --- NOUVELLE FONCTION : CALCUL DU CONTRASTE ---
     def get_contrast_color(self, rgb):
         luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
         return "white" if luminance < 128 else "black"
@@ -173,15 +167,17 @@ class WplaceBotApp:
                         font=("Segoe UI", 11, "bold"), padding=10)
         style.map("Start.TButton", background=[("active", self.highlight), ("disabled", self.btn_color)],
                   foreground=[("disabled", "#6c7086")])
+        style.configure("TCheckbutton", background=self.bg_color, foreground=self.fg_color, font=("Segoe UI", 9))
+        style.map("TCheckbutton", background=[("active", self.bg_color)], foreground=[("active", self.accent_color)])
 
     def create_widgets(self):
         header = tk.Frame(self.root, bg=self.bg_color)
         header.pack(fill="x", pady=(15, 5))
         tk.Label(header, text="ARC PLACER", font=("Segoe UI", 16, "bold"), bg=self.bg_color,
                  fg=self.accent_color).pack()
-        tk.Label(header, text="v2.0 • Mathis Maureau", font=("Segoe UI", 8), bg=self.bg_color, fg="#6c7086").pack()
+        tk.Label(header, text="v2.1 • Mathis Maureau", font=("Segoe UI", 8), bg=self.bg_color, fg="#6c7086").pack()
 
-        f_params = ttk.LabelFrame(self.root, text="Cible & Délai", padding=10)
+        f_params = ttk.LabelFrame(self.root, text="Paramètres", padding=10)
         f_params.pack(fill="x", padx=15, pady=5)
 
         # 1. Selecteur de Couleur
@@ -202,7 +198,13 @@ class WplaceBotApp:
         # 2. Délai
         tk.Label(f_params, text="Délai Clic (sec) :", bg=self.bg_color, fg="#6c7086", font=("Segoe UI", 8)).pack(
             anchor="w")
-        ttk.Entry(f_params, textvariable=self.user_delay, justify="center").pack(fill="x")
+        ttk.Entry(f_params, textvariable=self.user_delay, justify="center").pack(fill="x", pady=(0, 10))
+
+        # 3. Option Pipette
+        self.chk_pipette = ttk.Checkbutton(f_params, text="Auto Pipette (Smart Mode)", variable=self.use_pipette)
+        self.chk_pipette.pack(fill="x", anchor="w", pady=2)
+        ToolTip(self.chk_pipette,
+                "Si activé : Utilise 'i' seulement si la couleur change.\nSinon, continue de cliquer avec la couleur actuelle.")
 
         # Setup Buttons
         f_conf = ttk.LabelFrame(self.root, text="Configuration", padding=10)
@@ -241,7 +243,6 @@ class WplaceBotApp:
         self.toggle_setup_buttons("normal")
         self.log("Annulé.")
 
-    # --- LOGIQUE PALETTE COULEUR ---
     def open_color_palette(self):
         self.toggle_setup_buttons("disabled")
         self.top = tk.Toplevel(self.root)
@@ -252,7 +253,10 @@ class WplaceBotApp:
 
         grid_frame = tk.Frame(self.top, bg=self.bg_color)
         grid_frame.pack(padx=10, pady=10)
-        cols = 16
+
+        total_colors = len(GAME_COLORS)
+        cols = int(math.sqrt(total_colors * 1.6))
+        cols = max(5, min(cols, 20))
 
         for i, color in enumerate(GAME_COLORS):
             btn = tk.Button(
@@ -279,7 +283,6 @@ class WplaceBotApp:
         self.toggle_setup_buttons("normal")
         self.log(f"Cible : {color_data['name']}")
 
-    # --- GESTION DU BOT ---
     def toggle_bot_safe(self):
         self.root.after(0, self.toggle_bot)
 
@@ -294,12 +297,17 @@ class WplaceBotApp:
             self.btn_start.config(text="▶  START (Touche 'S')", style="Start.TButton")
             self.log("Arrêté.")
 
+    # --- LOGIQUE PRINCIPALE ---
     def bot_loop(self):
-        target_rgb = self.target_color_rgb
         ref_size = self.full_block_size.get()
         tol = self.tolerance
         threshold = ref_size * 0.7
         scan_step = 4
+
+        use_pipette_mode = self.use_pipette.get()
+        target_rgb = self.target_color_rgb
+
+        last_placed_rgb = None
 
         try:
             base_delay = float(self.user_delay.get().replace(',', '.'))
@@ -329,26 +337,66 @@ class WplaceBotApp:
                 x = sx
                 while x < ex:
                     if keyboard.is_pressed('q'): break
+
                     if self.is_in_processed_zone(x, y, processed_zones):
                         x += scan_step;
                         continue
-                    if not BotVision.check_match(pixels[x, y], target_rgb, tol):
-                        x += scan_step;
-                        continue
 
-                    blob_w, blob_h, bbox = BotVision.measure_blob_at(pixels, x, y, w_s, h_s, target_rgb, tol)
+                    current_target_rgb = None
+
+                    # 1. IDENTIFICATION CIBLE
+                    if use_pipette_mode:
+                        identified = BotVision.identify_color(pixels[x, y], tol)
+                        if identified:
+                            current_target_rgb = identified
+                        else:
+                            x += scan_step;
+                            continue
+                    else:
+                        if BotVision.check_match(pixels[x, y], target_rgb, tol):
+                            current_target_rgb = target_rgb
+                        else:
+                            x += scan_step;
+                            continue
+
+                    # 2. MESURE DU BLOC
+                    blob_w, blob_h, bbox = BotVision.measure_blob_at(pixels, x, y, w_s, h_s, current_target_rgb, tol)
                     blob_size = max(blob_w, blob_h)
-                    processed_zones.append(bbox)
 
+                    # 3. ACTION SI PETIT BLOC
                     if blob_size < threshold:
                         cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
                         if sx <= cx <= ex and sy <= cy <= ey:
-                            ox, oy = random.randint(-1, 1), random.randint(-1, 1)
-                            pyautogui.click(cx + ox, cy + oy)
+                            found = True
+                            processed_zones.append(bbox)
+
+                            if use_pipette_mode:
+                                # OPTIMISATION PIPETTE RAPIDE
+                                pyautogui.moveTo(cx, cy)
+
+                                if current_target_rgb != last_placed_rgb:
+                                    # La couleur a changé
+                                    keyboard.press_and_release('i')
+                                    time.sleep(0.01)
+                                    pyautogui.click()  # Prendre
+                                    time.sleep(0.01)
+                                    pyautogui.click()  # Poser
+
+                                    last_placed_rgb = current_target_rgb
+                                else:
+                                    # Même couleur
+                                    pyautogui.click()
+
+                            else:
+                                # Clic Simple Classique
+                                ox, oy = random.randint(-1, 1), random.randint(-1, 1)
+                                pyautogui.click(cx + ox, cy + oy)
+
+                            x = bbox[2] + 2
                             actual_delay = base_delay + random.uniform(0, base_delay * 0.3)
                             time.sleep(actual_delay)
-                            found = True
-                    x = bbox[2] + 2
+                    else:
+                        x = bbox[2] + 2
                 y += scan_step
             if not found: time.sleep(0.5)
 
